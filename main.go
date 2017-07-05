@@ -39,10 +39,9 @@ func main() {
 	time.Sleep(1 * time.Second)
 	fmt.Println("init success!")
 	go Producer() //生产者
-	fmt.Println(runtime.NumGoroutine())
-	Distribution() //分拣者
+	go Listener() //监控者
 
-	time.Sleep(1 * time.Hour)
+	Distribution() //分拣者
 
 }
 func Distribution() {
@@ -95,7 +94,25 @@ func Create_checker() {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+func Listener() { //监控并定时报告当前协程数量
+	for {
+		time.Sleep(30 * time.Minute)
+		conf, err := Get_conf_suffix()
+		if err != nil {
+			fmt.Println(err)
+		}
+		for _, v := range conf {
+			if _, ok := SuffixMap[v.suffix]; ok {
+				continue
+			} else {
+				go Checker(v)
 
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		fmt.Println(runtime.NumGoroutine())
+	}
+}
 func Checker(info suffix_data) {
 
 	ch := make(chan string, 30)
