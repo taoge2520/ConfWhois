@@ -61,7 +61,7 @@ func get_data(domain string, result string, dconf []string, tag string, nstag st
 	//	data.RegistrantEmail = temp.RegistrantEmail
 	//	data.Registrant = temp.Registrant
 	if data.DomainStatus == "" {
-		data.DomainStatus = "ok defalt setting"
+		data.DomainStatus = "registered .."
 	}
 	return
 

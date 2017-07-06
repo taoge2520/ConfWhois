@@ -75,7 +75,7 @@ func Distribution() {
 }
 
 func Producer() { //查询入口，可视情况调整更改
-	enter <- "apple.ax" //test
+	enter <- "apple.xxx" //test
 	//	domains := []string{"baidu.biz", "app.biz", "baidu.cc", "hl.cc",
 	//		"baidu.cn", "qq.cn", "baidu.com", "dns.com", "jmu.edu", "stanford.edu",
 	//		"sdf.info", "ten.info", "baidu.ltd", "golang.org", "baidu.pub", "baidu.top"}
@@ -93,10 +93,12 @@ func Create_checker() {
 		go Checker(v)
 		time.Sleep(100 * time.Millisecond)
 	}
+	fmt.Println("checker ready!")
 }
 func Listener() { //监控并定时报告当前协程数量
+	fmt.Println("linstener ready!")
 	for {
-		time.Sleep(30 * time.Minute)
+		time.Sleep(3 * time.Minute)
 		conf, err := Get_conf_suffix()
 		if err != nil {
 			fmt.Println(err)
@@ -110,7 +112,7 @@ func Listener() { //监控并定时报告当前协程数量
 				time.Sleep(100 * time.Millisecond)
 			}
 		}
-		fmt.Println(runtime.NumGoroutine())
+		fmt.Println("now goroutine is:", runtime.NumGoroutine())
 	}
 }
 func Checker(info suffix_data) {
@@ -129,7 +131,7 @@ func Checker(info suffix_data) {
 		IpMap[info.suffix] <- ip_unit
 	}
 	ip := <-IpMap[info.suffix]
-	fmt.Println(info.suffix, "goroutine is ready get ip is:", ip.Ip)
+	//fmt.Println(info.suffix, "goroutine is ready get ip is:", ip.Ip)
 	var analize []string
 	analize = append(analize, info.domain_name)
 	analize = append(analize, "registrar iana id:") //按照顺序,和解析结构体一致原则
