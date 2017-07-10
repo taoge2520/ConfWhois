@@ -3,6 +3,8 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
+	"os"
 	"regexp"
 	"runtime"
 	"strings"
@@ -12,16 +14,20 @@ import (
 
 var (
 	SuffixMap map[string]chan string
-	IpMap     map[string]chan Ipuse
+	//	IpMap     map[string]chan Ipuse
 	//Domain_conf []string
 	Iplist  []string
 	err     error
 	servers map[string]string
 	enter   chan string
+	file    *os.File
+	Lenip   int
 )
 
 const (
 	STRICT = 30
+
+	BATCH = 100000
 )
 
 type Ipuse struct {
@@ -48,40 +54,63 @@ func Distribution() {
 	for {
 		value := <-enter
 
-		value1 := value
 		if IsChineseChar(value) { //中文域名转码
-			value1, err = ToASCII(value)
+			value, err = ToASCII(value)
 			if err != nil {
 				fmt.Println(err)
 			}
 		}
 
-		if !Check_domain(value1) {
+		if !Check_domain(value) {
 			fmt.Println("非法域名！")
 			return
 		}
-		part := strings.Split(value1, ".")
+		part := strings.Split(value, ".")
 		suffix := part[len(part)-1]
 		//fmt.Println(suffix, len(SuffixMap[suffix]))
 		if _, ok := SuffixMap[suffix]; ok {
 
-			SuffixMap[suffix] <- value1
+			SuffixMap[suffix] <- value
 		} else {
-			fmt.Println("未启动该域名后缀对应的线程,默认处理方式")
-			SuffixMap["curr"] <- value1
+			fmt.Println(value, "未启动该域名后缀对应的线程,默认处理方式")
+			SuffixMap["curr"] <- value
 		}
 
 	}
 }
 
 func Producer() { //查询入口，可视情况调整更改
-	enter <- "apple.xxx" //test
-	//	domains := []string{"baidu.biz", "app.biz", "baidu.cc", "hl.cc",
-	//		"baidu.cn", "qq.cn", "baidu.com", "dns.com", "jmu.edu", "stanford.edu",
-	//		"sdf.info", "ten.info", "baidu.ltd", "golang.org", "baidu.pub", "baidu.top"}
-	//	for _, v := range domains {
-	//		enter <- v
-	//	}
+	maxid, err := Sql_getcount("domain_7")
+	//maxid := 10000
+	fmt.Println("max id of datas is:", maxid)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	page := maxid / BATCH
+	if maxid%BATCH > 0 {
+		page++
+	}
+
+	//var jiaoyan int
+	for i := 0; i < page; i++ {
+
+		datas, err := Getdomain1(i*BATCH, (i+1)*BATCH, "domain_7")
+
+		if len(datas) == 0 {
+			continue
+		}
+		if err != nil {
+			fmt.Println(err)
+		}
+		for _, v := range datas {
+
+			enter <- v
+
+		}
+	}
+
 }
 
 func Create_checker() {
@@ -90,7 +119,12 @@ func Create_checker() {
 		fmt.Println(err)
 	}
 	for _, v := range conf {
-		go Checker(v)
+		ch := make(chan string, 1000)
+		SuffixMap[v.suffix] = ch
+		for i := 0; i < v.routine; i++ {
+			ip := Ipuse{Iplist[i], 0}
+			go Checker(v, ip)
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	fmt.Println("checker ready!")
@@ -98,6 +132,7 @@ func Create_checker() {
 func Listener() { //监控并定时报告当前协程数量
 	fmt.Println("linstener ready!")
 	for {
+		fmt.Println("now goroutine is:", runtime.NumGoroutine())
 		time.Sleep(3 * time.Minute)
 		conf, err := Get_conf_suffix()
 		if err != nil {
@@ -107,7 +142,10 @@ func Listener() { //监控并定时报告当前协程数量
 			if _, ok := SuffixMap[v.suffix]; ok {
 				continue
 			} else {
-				go Checker(v)
+				for i := 0; i < v.routine; i++ {
+					ip := Ipuse{Iplist[i], 0}
+					go Checker(v, ip)
+				}
 
 				time.Sleep(100 * time.Millisecond)
 			}
@@ -115,23 +153,24 @@ func Listener() { //监控并定时报告当前协程数量
 		fmt.Println("now goroutine is:", runtime.NumGoroutine())
 	}
 }
-func Checker(info suffix_data) {
+func Checker(info suffix_data, ip Ipuse) { //测试ing
 
-	ch := make(chan string, 30)
-	SuffixMap[info.suffix] = ch
+	//	IpMap = make(map[string]chan Ipuse)
 
-	IpMap = make(map[string]chan Ipuse)
-
-	for _, v := range Iplist {
-		var ip_unit Ipuse
-		ip_unit.Count = 0
-		ip_unit.Ip = v
-		ch1 := make(chan Ipuse, 30)
-		IpMap[info.suffix] = ch1
-		IpMap[info.suffix] <- ip_unit
+	//	for _, v := range Iplist {
+	//		var ip_unit Ipuse
+	//		ip_unit.Count = 0
+	//		ip_unit.Ip = v
+	//		ch1 := make(chan Ipuse, 30)
+	//		IpMap[info.suffix] = ch1
+	//		IpMap[info.suffix] <- ip_unit
+	//	}
+	//ip := <-IpMap[info.suffix]
+	if len(Iplist) == 0 {
+		fmt.Println("length of iplist is zero,this routine open fail!")
+		return
 	}
-	ip := <-IpMap[info.suffix]
-	//fmt.Println(info.suffix, "goroutine is ready get ip is:", ip.Ip)
+
 	var analize []string
 	analize = append(analize, info.domain_name)
 	analize = append(analize, "registrar iana id:") //按照顺序,和解析结构体一致原则
@@ -143,17 +182,32 @@ func Checker(info suffix_data) {
 
 	for {
 		value := <-SuffixMap[info.suffix]
-		//fmt.Println(info.suffix, "get!", value)
+
 		if ip.Count >= info.limit {
-			ip.Count = 0
-			IpMap[info.suffix] <- ip
-			ip = <-IpMap[info.suffix]
+			fmt.Println("change ip!!!!!!!!!!!!")
+			ip = Get_ipuse(ip)
 
 		}
+		fmt.Println("use ip is :", ip.Ip, "check:", value)
 		result, err := GetWhois(info.carry+value, ip.Ip)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println(value, err)
+			time.Sleep(10 * time.Second) //等待结束在重试一次
+			result, err = GetWhois(info.carry+value, ip.Ip)
+			if err != nil {
+				continue
+			}
 		}
+		if strings.Contains(result, info.domain_name) { //其他非正常情况下，重试一次
+			time.Sleep(time.Duration(info.wait) * time.Millisecond)
+			result, err = GetWhois(info.carry+value, ip.Ip)
+			if err != nil {
+				continue
+			}
+		}
+
+		file.WriteString(value + "---->" + result + "\n\n")
+		time.Sleep(time.Duration(info.wait) * time.Millisecond)
 		ip.Count++
 
 		//此处开始做msg处理部分
@@ -176,14 +230,23 @@ func Loadconf() (err error) { //程序启动时加载并初始化相关参数
 	myConfig := new(Config)
 	myConfig.InitConfig("./configip.txt")
 	h := strings.Split(myConfig.Mymap["conf=ip"], ",")
+	Lenip = len(h)
+	if Lenip == 0 {
+		os.Exit(0)
+	}
 	for _, v := range h {
 		Iplist = append(Iplist, v)
 	}
-
-	//	Domain_conf, err = Get_conf_analysis()
-	//	if err != nil {
-	//		return
-	//	}
+	fmt.Println("iplist is :", Iplist)
+	SRC_DB, err = Open_db(myConfig.Mymap["conf=conn249"]) //249db
+	if err != nil {
+		fmt.Println(err)
+	}
+	fileName := "save.txt"
+	file, err = os.Create(fileName)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	servers = make(map[string]string)
 	data, err := Get_conf_server()
@@ -216,4 +279,22 @@ func IsChineseChar(str string) bool {
 		}
 	}
 	return false
+}
+func Get_ipuse(pre_ip Ipuse) (ipu Ipuse) {
+	for {
+		seed := Random_number(Lenip)
+		ipu.Count = 0
+		ipu.Ip = Iplist[seed]
+		if ipu.Ip == pre_ip.Ip {
+			continue
+		}
+		return
+	}
+	return
+}
+
+func Random_number(max int) int {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return r.Intn(max)
+
 }
